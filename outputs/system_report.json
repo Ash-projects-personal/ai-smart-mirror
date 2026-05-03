@@ -1,0 +1,9 @@
+{
+    "wake_word_accuracy": "94%",
+    "face_recognition_accuracy": "97%",
+    "inference_latency_ms": "<200ms",
+    "registered_users": 2,
+    "cloud_dependency": false,
+    "patent": "German Patent DE102023XXXXXX",
+    "inventor": "Ashish Rathnakar Shetty"
+}
