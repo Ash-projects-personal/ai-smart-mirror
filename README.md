@@ -1,34 +1,32 @@
 # ai-smart-mirror
 
-This is the project that got me a German patent. Built it before ChatGPT was a thing. Pushing the core system code here.
+This is the project that got me a German patent (Gebrauchsmuster). Built it for my major project in college between Jan 2022 and June 2023.
 
 ## What this does
 
-It's a smart mirror with fully custom on-device AI — no cloud, no API calls, everything runs on a Raspberry Pi 4. The mirror has three main AI components:
+It's a smart mirror, but instead of just showing the weather, I built it as a full home security system. The core feature that got patented is the integration of an AI voice assistant with a hardware-level intruder detection system.
 
-1. **Wake-Word Detection**: A custom lightweight model trained on 5,000+ audio samples I collected. It listens for "hey mirror" and achieves 94% accuracy even in noisy environments. Runs in under 50ms.
+I wired up a PIR (Passive Infrared) sensor and a GSM module directly to the Raspberry Pi. When you tell the mirror to "arm security" before leaving the house, it activates the PIR sensor. If motion is detected while armed, the GSM module immediately fires off an SMS alert to my phone. 
 
-2. **Facial Recognition**: A lightweight FaceNet variant that identifies registered users from the camera feed. 97% identification accuracy across 50 registered users. Under 150ms inference on the Pi.
+I also added an IR frame around the glass to give it touch capabilities without needing an expensive capacitive touch display.
 
-3. **Personalized Overlays**: Once the user is identified, the mirror shows their personalized data — weather, today's calendar events, health metrics from connected devices (Fitbit/Apple Health via local API), and news headlines filtered to their interests.
+## The numbers and recognition
 
-The whole thing processes on-device in under 200ms total latency. No internet required.
-
-## The patent
-
-Awarded German Patent DE102023XXXXXX for the AI architecture and the human-computer interaction model. The key novelty was the combination of always-on wake-word detection with user-specific context personalization on embedded hardware.
+- **Patent**: German Patent DE 20 2023 105 343 (IPC: G08B 13/196 - Alarm systems using infrared)
+- **Cost**: Built the whole thing for about $500. Commercial smart mirrors with security features usually run $5,000-$8,000.
+- **Publications**: Published the research paper on ResearchSquare and ResearchGate, and it got accepted by multiple IEEE conferences.
 
 ## How to run
 
 ```bash
-pip install numpy Pillow matplotlib
+pip install numpy Pillow opencv-python-headless
 python mirror_core.py
 ```
 
-This runs the demo mode which simulates wake-word detection, facial recognition, and renders a sample mirror display overlay to `outputs/mirror_display.png`.
+The script runs a software simulation of the hardware components (GPIO for the PIR sensor, Serial for the GSM module). It simulates the arming process, triggers a motion event, and outputs the simulated AT commands that would be sent to the GSM module to trigger the SMS.
 
 ## Files
 
-- `mirror_core.py`: Full system — wake-word detector, face recognizer, overlay renderer
-- `outputs/mirror_display.png`: Sample rendered mirror display
-- `outputs/system_report.json`: System performance metrics
+- `mirror_core.py`: The main system logic handling GPIO, Serial communication, and the UI rendering.
+- `outputs/mirror_ui_disarmed.png`: Simulated display state
+- `outputs/mirror_ui_armed.png`: Simulated display state when PIR is active
