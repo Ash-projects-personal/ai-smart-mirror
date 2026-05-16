@@ -85,6 +85,34 @@ class EventLog:
         return entry
 
 
+# ─── Snapshot capture on intruder alert ───────────────────────────────────────
+class SnapshotCapture:
+    """Renders a timestamped 'snapshot' PNG when intrusion is detected."""
+
+    def __init__(self, output_dir: Path, size: tuple[int, int] = (640, 480)) -> None:
+        self.output_dir = Path(output_dir)
+        self.output_dir.mkdir(parents=True, exist_ok=True)
+        self.size = size
+
+    def capture(self, label: str = "MOTION") -> Path:
+        ts = datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
+        path = self.output_dir / f"snapshot_{ts}.png"
+        font = _load_font(28)
+        img = Image.new("RGB", self.size, color=(20, 20, 20))
+        draw = ImageDraw.Draw(img)
+        draw.rectangle(
+            (40, 40, self.size[0] - 40, self.size[1] - 40),
+            outline=(80, 80, 80),
+            width=2,
+        )
+        box = (180, 140, 460, 360)
+        draw.rectangle(box, outline=(255, 50, 50), width=4)
+        draw.text((box[0], box[1] - 32), label, fill=(255, 50, 50), font=font)
+        draw.text((50, self.size[1] - 40), ts, fill=(180, 180, 180), font=font)
+        img.save(path)
+        return path
+
+
 # ─── Voice assistant ──────────────────────────────────────────────────────────
 COMMAND_MAP: dict[str, str] = {
     "arm security": "ARM_SECURITY",
@@ -116,11 +144,13 @@ class IntruderDetectionSystem:
         owner_phone: str = DEFAULT_OWNER_PHONE,
         alert_cooldown: float = 10.0,
         events: EventLog | None = None,
+        snapshot: SnapshotCapture | None = None,
     ) -> None:
         self.pir_pin = pir_pin
         self.owner_phone = owner_phone
         self.alert_cooldown = alert_cooldown
         self.events = events
+        self.snapshot = snapshot
 
         self.gpio = MockGPIO()
         self.gpio.setmode(self.gpio.BCM)
@@ -131,11 +161,16 @@ class IntruderDetectionSystem:
         self._armed = threading.Event()
         self._stop = threading.Event()
         self._last_alert: float = 0.0
+        self._last_snapshot: Path | None = None
         self._thread: threading.Thread | None = None
 
     @property
     def armed(self) -> bool:
         return self._armed.is_set()
+
+    @property
+    def last_snapshot(self) -> Path | None:
+        return self._last_snapshot
 
     def arm(self) -> None:
         self._armed.set()
@@ -150,16 +185,30 @@ class IntruderDetectionSystem:
             self.events.record("disarmed")
 
     def send_sms_alert(self) -> None:
-        """Send SMS via GSM module AT commands."""
+        """Capture a snapshot, then send SMS via GSM module AT commands."""
+        snapshot_path: Path | None = None
+        if self.snapshot:
+            snapshot_path = self.snapshot.capture("MOTION")
+            self._last_snapshot = snapshot_path
+            log.info("[Security] snapshot saved to %s", snapshot_path)
+
         log.warning(
             "[Security] motion detected while armed — SMS to %s", self.owner_phone
         )
+        body = b"ALERT: Motion detected by Smart Mirror security system."
+        if snapshot_path:
+            body += f" Snapshot: {snapshot_path.name}".encode()
+
         self.gsm.write(b"AT+CMGF=1\r")
         self.gsm.write(f'AT+CMGS="{self.owner_phone}"\r'.encode())
-        self.gsm.write(b"ALERT: Motion detected by Smart Mirror security system.\x1a")
+        self.gsm.write(body + b"\x1a")
         self._last_alert = time.monotonic()
         if self.events:
-            self.events.record("alert", phone=self.owner_phone)
+            self.events.record(
+                "alert",
+                phone=self.owner_phone,
+                snapshot=str(snapshot_path) if snapshot_path else None,
+            )
 
     def _monitor(self, poll_interval: float) -> None:
         while not self._stop.is_set():
@@ -250,7 +299,12 @@ class InteractiveMirror:
     ) -> None:
         self.output_dir = Path(output_dir)
         self.events = EventLog(self.output_dir / "events.jsonl")
-        self.security = IntruderDetectionSystem(owner_phone=owner_phone, events=self.events)
+        self.snapshot = SnapshotCapture(self.output_dir / "snapshots")
+        self.security = IntruderDetectionSystem(
+            owner_phone=owner_phone,
+            events=self.events,
+            snapshot=self.snapshot,
+        )
         self.ui = SmartMirrorUI()
         self.state = MirrorState()
 
