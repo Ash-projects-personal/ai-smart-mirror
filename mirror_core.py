@@ -13,12 +13,14 @@ Features:
 from __future__ import annotations
 
 import argparse
+import json
 import logging
 import os
 import random
 import threading
 import time
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageFont
@@ -62,6 +64,27 @@ class MockSerial:
         return b"OK\r\n"
 
 
+# ─── Event log (JSON lines) ───────────────────────────────────────────────────
+class EventLog:
+    """Append-only JSON-lines log of security events for audit."""
+
+    def __init__(self, path: Path) -> None:
+        self.path = Path(path)
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        self._lock = threading.Lock()
+
+    def record(self, event: str, **payload: object) -> dict:
+        entry = {
+            "ts": datetime.utcnow().isoformat(timespec="seconds") + "Z",
+            "event": event,
+            **payload,
+        }
+        with self._lock:
+            with self.path.open("a", encoding="utf-8") as f:
+                f.write(json.dumps(entry) + "\n")
+        return entry
+
+
 # ─── Voice assistant ──────────────────────────────────────────────────────────
 COMMAND_MAP: dict[str, str] = {
     "arm security": "ARM_SECURITY",
@@ -92,10 +115,12 @@ class IntruderDetectionSystem:
         serial_port: str = "/dev/ttyS0",
         owner_phone: str = DEFAULT_OWNER_PHONE,
         alert_cooldown: float = 10.0,
+        events: EventLog | None = None,
     ) -> None:
         self.pir_pin = pir_pin
         self.owner_phone = owner_phone
         self.alert_cooldown = alert_cooldown
+        self.events = events
 
         self.gpio = MockGPIO()
         self.gpio.setmode(self.gpio.BCM)
@@ -115,10 +140,14 @@ class IntruderDetectionSystem:
     def arm(self) -> None:
         self._armed.set()
         log.info("[Security] armed — PIR active")
+        if self.events:
+            self.events.record("armed")
 
     def disarm(self) -> None:
         self._armed.clear()
         log.info("[Security] disarmed")
+        if self.events:
+            self.events.record("disarmed")
 
     def send_sms_alert(self) -> None:
         """Send SMS via GSM module AT commands."""
@@ -129,6 +158,8 @@ class IntruderDetectionSystem:
         self.gsm.write(f'AT+CMGS="{self.owner_phone}"\r'.encode())
         self.gsm.write(b"ALERT: Motion detected by Smart Mirror security system.\x1a")
         self._last_alert = time.monotonic()
+        if self.events:
+            self.events.record("alert", phone=self.owner_phone)
 
     def _monitor(self, poll_interval: float) -> None:
         while not self._stop.is_set():
@@ -212,8 +243,14 @@ class SmartMirrorUI:
 
 # ─── Main application ─────────────────────────────────────────────────────────
 class InteractiveMirror:
-    def __init__(self, owner_phone: str = DEFAULT_OWNER_PHONE) -> None:
-        self.security = IntruderDetectionSystem(owner_phone=owner_phone)
+    def __init__(
+        self,
+        owner_phone: str = DEFAULT_OWNER_PHONE,
+        output_dir: Path = Path("outputs"),
+    ) -> None:
+        self.output_dir = Path(output_dir)
+        self.events = EventLog(self.output_dir / "events.jsonl")
+        self.security = IntruderDetectionSystem(owner_phone=owner_phone, events=self.events)
         self.ui = SmartMirrorUI()
         self.state = MirrorState()
 
@@ -268,7 +305,7 @@ def main(argv: list[str] | None = None) -> int:
 
     logging.basicConfig(level=args.log_level, format="%(message)s")
 
-    mirror = InteractiveMirror(owner_phone=args.phone)
+    mirror = InteractiveMirror(owner_phone=args.phone, output_dir=args.output_dir)
     mirror.run_demo(args.output_dir)
     return 0
 
