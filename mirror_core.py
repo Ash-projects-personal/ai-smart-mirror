@@ -18,6 +18,9 @@ import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 import cv2
 
+PATENT_ID = "DE 20 2023 105 343"
+PATENT_IPC = "G08B 13/196"
+
 # Mock hardware libraries for the portfolio demo
 class MockGPIO:
     IN = "IN"
@@ -113,8 +116,8 @@ class SmartMirrorUI:
         draw.text((50, 200), f"Security: {sec_text}", fill=sec_color)
         
         # Patent Info
-        draw.text((50, 1800), "Patent DE 20 2023 105 343 | Ashish Shetty", fill=(100, 100, 100))
-        draw.text((50, 1830), "IPC: G08B 13/196", fill=(100, 100, 100))
+        draw.text((50, 1800), f"Patent {PATENT_ID} | Ashish Shetty", fill=(100, 100, 100))
+        draw.text((50, 1830), f"IPC: {PATENT_IPC}", fill=(100, 100, 100))
         
         os.makedirs('outputs', exist_ok=True)
         img.save(output_path)
@@ -134,7 +137,7 @@ class InteractiveMirror:
     def start(self):
         print("=" * 60)
         print("INTERACTIVE MIRROR WITH VIRTUAL ASSISTANT")
-        print("Patent: DE 20 2023 105 343 (Gebrauchsmuster)")
+        print(f"Patent: {PATENT_ID} (Gebrauchsmuster)")
         print("Cost: ~$500 (Hardware: RPi, IR Frame, PIR, GSM)")
         print("=" * 60)
         
