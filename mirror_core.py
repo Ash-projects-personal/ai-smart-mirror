@@ -13,6 +13,7 @@ Features:
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import logging
 import os
@@ -115,6 +116,31 @@ class WeatherProvider:
         )
 
 
+# ─── User profile recognition (stub) ──────────────────────────────────────────
+@dataclass
+class UserProfile:
+    user_id: str
+    name: str
+    greeting: str
+
+
+class FaceRecognizer:
+    """Stub recogniser; real build used OpenCV's LBPH on captured faces."""
+
+    def __init__(self, profiles: list[UserProfile] | None = None) -> None:
+        self.profiles: list[UserProfile] = profiles or [
+            UserProfile("ashish", "Ashish", "Welcome home, Ashish."),
+            UserProfile("guest", "Guest", "Hello there."),
+        ]
+
+    def identify(self, frame_id: str | None = None) -> UserProfile:
+        """Deterministic stub: hashes frame_id to a profile."""
+        if not frame_id:
+            return self.profiles[0]
+        h = int(hashlib.sha256(frame_id.encode()).hexdigest(), 16)
+        return self.profiles[h % len(self.profiles)]
+
+
 # ─── Snapshot capture on intruder alert ───────────────────────────────────────
 class SnapshotCapture:
     """Renders a timestamped 'snapshot' PNG when intrusion is detected."""
@@ -149,6 +175,7 @@ COMMAND_MAP: dict[str, str] = {
     "lock down": "ARM_SECURITY",
     "disarm": "DISARM_SECURITY",
     "weather": "REFRESH_WEATHER",
+    "who am i": "WHO_AM_I",
 }
 
 
@@ -270,6 +297,7 @@ class MirrorState:
     security_armed: bool = False
     current_view: str = "home"
     weather: WeatherSnapshot | None = None
+    user: UserProfile | None = None
 
 
 def _load_font(size: int) -> ImageFont.ImageFont:
@@ -299,14 +327,17 @@ class SmartMirrorUI:
         draw.text((50, 50), time.strftime("%H:%M"), fill=(255, 255, 255), font=self._font_time)
         draw.text((50, 170), time.strftime("%A, %B %d"), fill=(180, 180, 180), font=self._font_date)
 
+        if state.user:
+            draw.text((50, 230), state.user.greeting, fill=(220, 220, 220), font=self._font_widget)
+
         sec_color = (255, 50, 50) if state.security_armed else (50, 255, 50)
         sec_text = "SYSTEM ARMED (PIR ACTIVE)" if state.security_armed else "SYSTEM DISARMED"
-        draw.text((50, 260), f"Security: {sec_text}", fill=sec_color, font=self._font_status)
+        draw.text((50, 290), f"Security: {sec_text}", fill=sec_color, font=self._font_status)
 
         if state.weather:
-            draw.text((50, 340), state.weather.short(), fill=(180, 200, 255), font=self._font_widget)
+            draw.text((50, 370), state.weather.short(), fill=(180, 200, 255), font=self._font_widget)
             draw.text(
-                (50, 380),
+                (50, 410),
                 f"Humidity: {state.weather.humidity_pct}%",
                 fill=(140, 160, 200),
                 font=self._font_widget,
@@ -338,6 +369,7 @@ class InteractiveMirror:
         owner_phone: str = DEFAULT_OWNER_PHONE,
         output_dir: Path = Path("outputs"),
         weather_seed: int | None = None,
+        user_frame_id: str | None = "ashish",
     ) -> None:
         self.output_dir = Path(output_dir)
         self.events = EventLog(self.output_dir / "events.jsonl")
@@ -348,8 +380,12 @@ class InteractiveMirror:
             snapshot=self.snapshot,
         )
         self.weather = WeatherProvider(seed=weather_seed)
+        self.recognizer = FaceRecognizer()
         self.ui = SmartMirrorUI()
-        self.state = MirrorState(weather=self.weather.get_current())
+        self.state = MirrorState(
+            weather=self.weather.get_current(),
+            user=self.recognizer.identify(user_frame_id),
+        )
 
     def handle(self, text: str) -> str:
         action = parse_command(text)
@@ -362,6 +398,12 @@ class InteractiveMirror:
         elif action == "REFRESH_WEATHER":
             self.state.weather = self.weather.get_current()
             log.info("[Weather] %s", self.state.weather.short())
+        elif action == "WHO_AM_I" and self.state.user:
+            log.info(
+                "[Profile] identified as %s (%s)",
+                self.state.user.name,
+                self.state.user.user_id,
+            )
         return action
 
     def run_demo(self, output_dir: Path) -> None:
@@ -397,6 +439,11 @@ def main(argv: list[str] | None = None) -> int:
         help="Where to save the rendered UI PNGs.",
     )
     parser.add_argument(
+        "--user",
+        default="ashish",
+        help="Stub frame ID for face recognition (selects a profile).",
+    )
+    parser.add_argument(
         "--weather-seed",
         type=int,
         default=None,
@@ -415,6 +462,7 @@ def main(argv: list[str] | None = None) -> int:
         owner_phone=args.phone,
         output_dir=args.output_dir,
         weather_seed=args.weather_seed,
+        user_frame_id=args.user,
     )
     mirror.run_demo(args.output_dir)
     return 0
