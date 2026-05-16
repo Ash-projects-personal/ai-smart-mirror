@@ -85,6 +85,36 @@ class EventLog:
         return entry
 
 
+# ─── Weather widget (stub provider) ───────────────────────────────────────────
+@dataclass
+class WeatherSnapshot:
+    location: str
+    temperature_c: float
+    condition: str
+    humidity_pct: int
+
+    def short(self) -> str:
+        return f"{self.location}: {self.temperature_c:.1f}°C, {self.condition}"
+
+
+class WeatherProvider:
+    """Stub weather. Real deployments would call OpenWeatherMap or similar."""
+
+    CONDITIONS = ("Clear", "Cloudy", "Light rain", "Thunderstorm", "Foggy", "Sunny")
+
+    def __init__(self, location: str = "Mangaluru, IN", seed: int | None = None) -> None:
+        self.location = location
+        self._rng = random.Random(seed)
+
+    def get_current(self) -> WeatherSnapshot:
+        return WeatherSnapshot(
+            location=self.location,
+            temperature_c=round(self._rng.uniform(18.0, 34.0), 1),
+            condition=self._rng.choice(self.CONDITIONS),
+            humidity_pct=self._rng.randint(40, 90),
+        )
+
+
 # ─── Snapshot capture on intruder alert ───────────────────────────────────────
 class SnapshotCapture:
     """Renders a timestamped 'snapshot' PNG when intrusion is detected."""
@@ -118,7 +148,7 @@ COMMAND_MAP: dict[str, str] = {
     "arm security": "ARM_SECURITY",
     "lock down": "ARM_SECURITY",
     "disarm": "DISARM_SECURITY",
-    "weather": "SHOW_WEATHER",
+    "weather": "REFRESH_WEATHER",
 }
 
 
@@ -239,6 +269,7 @@ class IntruderDetectionSystem:
 class MirrorState:
     security_armed: bool = False
     current_view: str = "home"
+    weather: WeatherSnapshot | None = None
 
 
 def _load_font(size: int) -> ImageFont.ImageFont:
@@ -258,6 +289,7 @@ class SmartMirrorUI:
         self._font_time = _load_font(96)
         self._font_date = _load_font(36)
         self._font_status = _load_font(48)
+        self._font_widget = _load_font(32)
         self._font_footer = _load_font(20)
 
     def render(self, state: MirrorState, output_path: str | Path) -> Path:
@@ -270,6 +302,15 @@ class SmartMirrorUI:
         sec_color = (255, 50, 50) if state.security_armed else (50, 255, 50)
         sec_text = "SYSTEM ARMED (PIR ACTIVE)" if state.security_armed else "SYSTEM DISARMED"
         draw.text((50, 260), f"Security: {sec_text}", fill=sec_color, font=self._font_status)
+
+        if state.weather:
+            draw.text((50, 340), state.weather.short(), fill=(180, 200, 255), font=self._font_widget)
+            draw.text(
+                (50, 380),
+                f"Humidity: {state.weather.humidity_pct}%",
+                fill=(140, 160, 200),
+                font=self._font_widget,
+            )
 
         draw.text(
             (50, 1800),
@@ -296,6 +337,7 @@ class InteractiveMirror:
         self,
         owner_phone: str = DEFAULT_OWNER_PHONE,
         output_dir: Path = Path("outputs"),
+        weather_seed: int | None = None,
     ) -> None:
         self.output_dir = Path(output_dir)
         self.events = EventLog(self.output_dir / "events.jsonl")
@@ -305,8 +347,9 @@ class InteractiveMirror:
             events=self.events,
             snapshot=self.snapshot,
         )
+        self.weather = WeatherProvider(seed=weather_seed)
         self.ui = SmartMirrorUI()
-        self.state = MirrorState()
+        self.state = MirrorState(weather=self.weather.get_current())
 
     def handle(self, text: str) -> str:
         action = parse_command(text)
@@ -316,6 +359,9 @@ class InteractiveMirror:
         elif action == "DISARM_SECURITY":
             self.security.disarm()
             self.state.security_armed = False
+        elif action == "REFRESH_WEATHER":
+            self.state.weather = self.weather.get_current()
+            log.info("[Weather] %s", self.state.weather.short())
         return action
 
     def run_demo(self, output_dir: Path) -> None:
@@ -351,6 +397,12 @@ def main(argv: list[str] | None = None) -> int:
         help="Where to save the rendered UI PNGs.",
     )
     parser.add_argument(
+        "--weather-seed",
+        type=int,
+        default=None,
+        help="Optional seed for the weather stub (for deterministic demos).",
+    )
+    parser.add_argument(
         "--log-level",
         default="INFO",
         choices=["DEBUG", "INFO", "WARNING", "ERROR"],
@@ -359,7 +411,11 @@ def main(argv: list[str] | None = None) -> int:
 
     logging.basicConfig(level=args.log_level, format="%(message)s")
 
-    mirror = InteractiveMirror(owner_phone=args.phone, output_dir=args.output_dir)
+    mirror = InteractiveMirror(
+        owner_phone=args.phone,
+        output_dir=args.output_dir,
+        weather_seed=args.weather_seed,
+    )
     mirror.run_demo(args.output_dir)
     return 0
 
