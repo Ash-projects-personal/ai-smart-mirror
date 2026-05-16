@@ -1,5 +1,7 @@
 # ai-smart-mirror
 
+
+> **Patent:** German utility model (Gebrauchsmuster) **DE 20 2023 105 343**, IPC `G08B 13/196` — issued 2023. The AI voice assistant + hardware intruder-detection integration described in this repo is covered by that filing.
 This is the project that got me a German patent. Built it for my major project in college between Jan 2022 and June 2023.
 
 Patent: DE 20 2023 105 343 (Gebrauchsmuster), IPC: G08B 13/196
