@@ -18,6 +18,7 @@ import json
 import logging
 import os
 import random
+import sys
 import threading
 import time
 from dataclasses import dataclass
@@ -134,9 +135,12 @@ class FaceRecognizer:
         ]
 
     def identify(self, frame_id: str | None = None) -> UserProfile:
-        """Deterministic stub: hashes frame_id to a profile."""
+        """Direct match on user_id, otherwise deterministic hash to a profile."""
         if not frame_id:
             return self.profiles[0]
+        for p in self.profiles:
+            if p.user_id == frame_id:
+                return p
         h = int(hashlib.sha256(frame_id.encode()).hexdigest(), 16)
         return self.profiles[h % len(self.profiles)]
 
@@ -176,11 +180,19 @@ COMMAND_MAP: dict[str, str] = {
     "disarm": "DISARM_SECURITY",
     "weather": "REFRESH_WEATHER",
     "who am i": "WHO_AM_I",
+    "snapshot": "SNAPSHOT",
+    "quit": "QUIT",
+    "exit": "QUIT",
 }
+WAKE_WORD = "hey mirror"
 
 
-def parse_command(text: str) -> str:
-    lowered = text.lower()
+def parse_command(text: str, require_wake_word: bool = False) -> str:
+    lowered = text.lower().strip()
+    if require_wake_word:
+        if WAKE_WORD not in lowered:
+            return "NO_WAKE_WORD"
+        lowered = lowered.split(WAKE_WORD, 1)[1]
     for keyword, action in COMMAND_MAP.items():
         if keyword in lowered:
             return action
@@ -404,6 +416,11 @@ class InteractiveMirror:
                 self.state.user.name,
                 self.state.user.user_id,
             )
+        elif action == "SNAPSHOT":
+            path = self.snapshot.capture("MANUAL")
+            log.info("[Snapshot] saved to %s", path)
+        elif action == "UNKNOWN":
+            log.warning("[Voice] command not recognised: %r", text)
         return action
 
     def run_demo(self, output_dir: Path) -> None:
@@ -423,6 +440,20 @@ class InteractiveMirror:
         self.security.send_sms_alert()
 
         log.info("Demo complete — UI renders saved to %s", output_dir)
+
+    def run_interactive(self, output_dir: Path, stream=sys.stdin) -> None:
+        log.info("Interactive mode. Commands: arm security, disarm, weather, who am i, snapshot, quit.")
+        self.ui.render(self.state, output_dir / "mirror_ui_state.png")
+        for line in stream:
+            line = line.strip()
+            if not line:
+                continue
+            action = self.handle(line)
+            if action == "QUIT":
+                break
+            self.ui.render(self.state, output_dir / "mirror_ui_state.png")
+        self.security.stop()
+        log.info("Interactive session ended.")
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -450,6 +481,11 @@ def main(argv: list[str] | None = None) -> int:
         help="Optional seed for the weather stub (for deterministic demos).",
     )
     parser.add_argument(
+        "--interactive",
+        action="store_true",
+        help="Read voice commands from stdin instead of running the scripted demo.",
+    )
+    parser.add_argument(
         "--log-level",
         default="INFO",
         choices=["DEBUG", "INFO", "WARNING", "ERROR"],
@@ -464,7 +500,10 @@ def main(argv: list[str] | None = None) -> int:
         weather_seed=args.weather_seed,
         user_frame_id=args.user,
     )
-    mirror.run_demo(args.output_dir)
+    if args.interactive:
+        mirror.run_interactive(args.output_dir)
+    else:
+        mirror.run_demo(args.output_dir)
     return 0
 
 
