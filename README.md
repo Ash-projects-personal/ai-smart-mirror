@@ -15,8 +15,29 @@ I also added an IR frame around the glass to give it touch capabilities without 
 The research paper got published on ResearchSquare and ResearchGate and was accepted by multiple IEEE conferences.
 
 ```bash
-pip install numpy Pillow opencv-python-headless
-python mirror_core.py
+pip install -r requirements.txt
+python mirror_core.py                            # scripted demo
+python mirror_core.py --interactive              # REPL: type commands on stdin
+python mirror_core.py --weather-seed 42 --user ashish
 ```
 
-The script runs a software simulation of the hardware components. GPIO for the PIR sensor and Serial for the GSM module are mocked so you can run it without the physical hardware. It simulates the arming process, triggers a motion event, and outputs the simulated AT commands that would be sent to the GSM module.
+The script runs a software simulation of the hardware components. GPIO for the PIR sensor and Serial for the GSM module are mocked so you can run it without the physical hardware.
+
+### Features in the demo
+
+- **Voice command parser** with optional `hey mirror` wake-word: `arm security`, `disarm`, `weather`, `who am i`, `snapshot`, `quit`
+- **Intruder detection** — armed PIR triggers a GSM `AT+CMGS` SMS to the owner phone (env var `MIRROR_OWNER_PHONE`)
+- **Snapshot capture** — every alert renders a timestamped PNG to `outputs/snapshots/` and the filename is appended to the SMS body
+- **JSON-lines audit log** at `outputs/events.jsonl` (thread-safe append) for `armed`, `disarmed`, `alert` events
+- **Weather widget** with a seeded stub provider (swap for OpenWeatherMap in production) rendered on the mirror UI
+- **Face-recognition stub** — `--user ashish|guest` selects a `UserProfile` and the greeting renders on the mirror
+- **TrueType font rendering** at 1080×1920 with a graceful fallback to PIL's default
+
+### Tests
+
+```bash
+pip install -r requirements-dev.txt
+pytest -q
+```
+
+CI runs on push and PR across Python 3.10/3.11/3.12 — see `.github/workflows/ci.yml`.

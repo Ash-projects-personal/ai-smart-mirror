@@ -1,1 +1,1 @@
-numpy\nPillow\nmatplotlib
+Pillow>=10.0
